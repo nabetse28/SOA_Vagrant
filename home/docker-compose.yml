@@ -1,0 +1,121 @@
+version: "3.7"
+services:
+  usuarios:
+    image: ijtj03/soa-php
+    networks:
+      - websoa
+    deploy:
+      replicas: 3
+      labels:
+        - "traefik.port=5000"
+        - "traefik.backend=usuarios"
+        - "traefik.frontend.rule=Path:/usuarios"
+        - traefik.docker.network=public
+  productos:
+    image: ijtj03/soa-python
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: on-failure
+      labels:
+        - "traefik.port=5000"
+        - "traefik.backend=productos"
+        - "traefik.frontend.rule=Path:/productos"
+        - traefik.docker.network=public
+    depends_on:
+      - rs1
+      - rs2
+      - rs3
+    networks:
+      - websoa
+  ordenes:
+    image: ijtj03/soa-node
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: on-failure
+      labels:
+        - "traefik.port=5000"
+        - "traefik.backend=ordenes"
+        - "traefik.frontend.rule=Path:/ordenes,/ordenesiql"
+        - traefik.docker.network=public
+    networks:
+      - websoa
+  visualizer:
+    image: dockersamples/visualizer:stable
+    ports:
+      - "8000:8080"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    deploy:
+      placement:
+        constraints: [node.role == manager]
+  gateway:
+    image: traefik:1.4
+    deploy:
+      replicas: 3
+      placement:
+        constraints:
+          - node.role == manager
+      labels:
+        - "traefik.http.middlewares.my-auth.basicauth.users=test:$$apr1$$H6uskkkW$$IgXLP6ewTrSuBkTrqE8wj/,test2:$$apr1$$d9hr9HBB$$4HxwgUir3HP4EsggP/QNo0"
+        - "traefik.http.middlewares.my-auth.basicauth.headerField=X-WebAuth-User"
+    configs:
+      - source: traefik-config
+        target: /etc/traefik/traefik.toml
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    networks:
+      - websoa
+  rs1:
+    image: mongo:3.4
+    command: mongod --replSet "rs0"
+    networks:
+      - websoa
+    ports:
+      - "7001:27017"
+    deploy:
+      placement:
+        constraints: [node.role == manager]
+  rs2:
+    image: mongo:3.4
+    command: mongod --replSet "rs0"
+    networks:
+      - websoa
+    ports:
+      - "7002:27017"
+    deploy:
+      placement:
+        constraints: [node.hostname == worker-1]
+  rs3:
+    image: mongo:3.4
+    command: mongod --replSet "rs0"
+    networks:
+      - websoa
+    ports:
+      - "7003:27017"
+    deploy:
+      placement:
+        constraints: [node.hostname == worker-2]
+  rs:
+    image: ericsmalling/mongors:3.4
+    build:
+      context: ./mongo-cluster 
+    networks:
+      - websoa
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
+
+networks:
+  websoa:
+    driver: overlay
+
+configs:
+  traefik-config:
+    file: config.toml
